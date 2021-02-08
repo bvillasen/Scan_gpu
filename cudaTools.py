@@ -9,10 +9,10 @@ def setCudaDevice( devN = None, usingAnimation=False  ):
   if CUDA_initialized: return
   import pycuda.autoinit
   nDevices = cuda.Device.count()
-  print "\nAvailable Devices:"
+  print( "\nAvailable Devices:")
   for i in range(nDevices):
     dev = cuda.Device( i )
-    print "  Device {0}: {1}".format( i, dev.name() )
+    print( "  Device {0}: {1}".format( i, dev.name() ))
   devNumber = 0
   if nDevices > 1:
     if devN == None:
@@ -26,7 +26,7 @@ def setCudaDevice( devN = None, usingAnimation=False  ):
     cuda_gl.make_context(dev)
   else:
     dev.make_context()
-  print "Using device {0}: {1}".format( devNumber, dev.name() )
+  print( "Using device {0}: {1}".format( devNumber, dev.name() ))
   CUDA_initialized = True
   return dev
 
@@ -35,23 +35,23 @@ def mpi_setCudaDevice( pId, devN, MPI_comm, show=True ):
   cuda.init()
   if pId == 0 and show:
     nDevices = cuda.Device.count()
-    print "Available Devices:"
+    print( "Available Devices:")
     for i in range(nDevices):
       dev = cuda.Device( i )
-      print "  Device {0}: {1}".format( i, dev.name() )
+      print( "  Device {0}: {1}".format( i, dev.name() ))
   MPI_comm.Barrier()
   #cuda.Context.pop()  #Disable previus CUDA context
   dev = cuda.Device( devN ) #device we are working on
   ctx = dev.make_context() #make a working context
   ctx.push() #let context make the lead
-  print "[pId {0}] Using device {1}: {2}".format(pId, devN, ctx.get_device().name())
+  print( "[pId {0}] Using device {1}: {2}".format(pId, devN, ctx.get_device().name()))
   return ctx, dev
 
 #####################################################################
 def getFreeMemory( show=True):
   Mbytes = float(cuda.mem_get_info()[0])/1e6
   if show:
-    print " Free Global Memory: {0:.0f} MB".format(float(Mbytes))
+    print( " Free Global Memory: {0:.0f} MB".format(float(Mbytes)))
   return cuda.mem_get_info()[0]
 
 #####################################################################
@@ -61,7 +61,7 @@ def kernelMemoryInfo(kernel, kernelName=""):
   local=kernel.local_size_bytes
   const=kernel.const_size_bytes
   mbpt=kernel.max_threads_per_block
-  print "=Kernel Memory=    {0}". format(kernelName)
+  print( "=Kernel Memory=    {0}". format(kernelName))
   print("""Local:%d,\nShared:%d,\nRegisters:%d,\nConst:%d,\nMax Threads/B:%d"""%(local,shared,regs,const,mbpt))
 
 #####################################################################
@@ -122,7 +122,7 @@ def gpuArray3DtocudaArray( gpuArray, allowSurfaceBind=False, precision='float' )
     descr3D.format = cuda.array_format.SIGNED_INT32
     descr3D.num_channels = 2
   else:
-    print "ERROR:  CUDA_ARRAY incompatible precision"
+    print( "ERROR:  CUDA_ARRAY incompatible precision")
     sys.exit()
   descr3D.flags = 0
   if allowSurfaceBind:

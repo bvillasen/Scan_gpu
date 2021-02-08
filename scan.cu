@@ -1,14 +1,15 @@
 
 
 
-__global__ void Get_Transfer_Flags_Kernel( int n_total, int side,  double d_min, double d_max, double *pos_d, bool *transfer_flags_d ){
+__global__ void Get_Transfer_Flags_Kernel( part_int_t n_total, int side,  Real d_min, Real d_max, Real *pos_d, bool *transfer_flags_d ){
   
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
   if ( tid >= n_total ) return;
   
   bool transfer = 0;
   
-  double pos = pos_d[tid];
+  Real pos = pos_d[tid];
+  // if ( tid < 1 ) printf( "%f\n", pos);
   
   if ( side == 0 ){
     if ( pos < d_min ) transfer = 1;
@@ -18,12 +19,15 @@ __global__ void Get_Transfer_Flags_Kernel( int n_total, int side,  double d_min,
     if ( pos >= d_max ) transfer = 1;
   }
   
+  // if ( transfer ) printf( "##Thread particles transfer\n");
+  
   transfer_flags_d[tid] = transfer;  
 }
 
-__global__ void Scan_Kernel( int n_total, bool *transfer_flags_d, int *prefix_sum_d, int *prefix_sum_block_d ){
+
+__global__ void Scan_Kernel( part_int_t n_total, bool *transfer_flags_d, int *prefix_sum_d, int *prefix_sum_block_d ){
   
-  __shared__ int data_sh[SHARED_SIZE];
+  __shared__ int data_sh[SCAN_SHARED_SIZE];
   
   int tid_block, block_start;
   // tid = threadIdx.x + blockIdx.x * blockDim.x;
@@ -82,9 +86,9 @@ __global__ void Scan_Kernel( int n_total, bool *transfer_flags_d, int *prefix_su
 }
 
 
-__global__ void Prefix_Sum_Kernel( int n_partial, int *prefix_sum_block_d ){
+__global__ void Prefix_Sum_Blocks_Kernel( int n_partial, int *prefix_sum_block_d ){
   
-  int tid_block, val, counter, start_index, n_threads;
+  int tid_block, val,  start_index, n_threads;
   tid_block = threadIdx.x;
   n_threads = blockDim.x;
   
@@ -115,7 +119,9 @@ __global__ void Prefix_Sum_Kernel( int n_partial, int *prefix_sum_block_d ){
   }
 }
 
-__global__ void Sum_Blocks_Kernel( int n_total,  int *prefix_sum_d, int *prefix_sum_block_d){
+
+
+__global__ void Sum_Blocks_Kernel( part_int_t n_total,  int *prefix_sum_d, int *prefix_sum_block_d ){
   
   int tid, tid_block, block_id, data_id;
   tid = threadIdx.x + blockIdx.x * blockDim.x;
@@ -131,270 +137,47 @@ __global__ void Sum_Blocks_Kernel( int n_total,  int *prefix_sum_d, int *prefix_
   }
   __syncthreads();
    
-  
-  if (tid < n_total) prefix_sum_d[tid] += block_sum_sh[0];
-  
+  if (tid < n_total) prefix_sum_d[tid] += block_sum_sh[0];  
 }
 
-__global__ void Get_Transfer_Indexs_Kernel( int n_total, bool *transfer_flags_d, int *prefix_sum_d, int *transfer_indxs_d){
+
+__global__ void Get_N_Transfer_Particles_and_Transfer_Last( part_int_t n_total, int *n_transfer_d, bool *transfer_flags_d, int *prefix_sum_d, int *transfer_last_particle_d ){
+  n_transfer_d[0] = prefix_sum_d[n_total-1] + (int)transfer_flags_d[n_total-1];
+  // if (n_transfer_d[0] != 0 ) printf( "##Thread transfer: %d\n", n_transfer_d[0]); 
+  transfer_last_particle_d[0] = (int)transfer_flags_d[n_total-1];
+}
+
+
+__global__ void Get_Transfer_Indices_Kernel( part_int_t n_total, bool *transfer_flags_d, int *prefix_sum_d, int *transfer_indices_d ){
   
   int tid, transfer_index;
   tid =  threadIdx.x + blockIdx.x * blockDim.x;
   if ( tid >= n_total ) return;
   transfer_index = prefix_sum_d[tid];
     
-  if ( transfer_flags_d[tid] ) transfer_indxs_d[transfer_index] = tid;  
+  if ( transfer_flags_d[tid] ) transfer_indices_d[transfer_index] = tid;  
   
 }
 
-__global__ void Get_N_Transfer_Particles_Kernel( int n_total, int *n_transfer_d, bool *transfer_flags_d, int *prefix_sum_d ){
-  n_transfer_d[0] = prefix_sum_d[n_total-1] + (int)transfer_flags_d[n_total-1];
+
+__global__ void Select_Indices_to_Replace_Tranfered( part_int_t n_total, int n_transfer, int transfer_last, bool *transfer_flags_d, int *prefix_sum_d, int *replace_indices_d ){
+  
+  int tid, tid_inv;  
+  tid = threadIdx.x + blockIdx.x * blockDim.x;
+  if ( tid >= n_total ) return;
+  tid_inv = n_total - tid - 1;
+  
+  bool transfer_flag = transfer_flags_d[tid];
+  if ( transfer_flag ) return;
+  
+  int prefix_sum_inv, replace_id;
+  
+  prefix_sum_inv = n_transfer - prefix_sum_d[tid];
+  replace_id = tid_inv - prefix_sum_inv;
+  replace_indices_d[replace_id] = tid;
+  
 }
-
-// 
-// __global__ void Remove_Transfred_Particles_Kernel( int n_total, int *n_transfered_d, bool *transfer_flags_d, int *prefix_sum_d, int *transfer_indxs_d, double *data_d ){
-// 
-//   int tid_block, dst_indx ;
-//   tid_block =  threadIdx.x;
-//   // n_threads = blockDim.x;
-// 
-//   int n_replace, n_transfered, n_replaced;
-//   n_transfered = n_transfered_d[0];
-//   n_replace = n_transfered;
-// 
-// 
-//   n_replaced = 0;
-// 
-//   if (tid_block == 0 ){
-//     for ( int i=n_total-1; i>=0; i--){
-//       if ( !transfer_flags_d[i] ){
-//         if ( n_replaced == n_replace ) break;
-//         dst_indx = transfer_indxs_d[n_replaced];
-//         data_d[dst_indx] = data_d[i];
-//         n_replaced += 1;
-//       }
-//     }
-//   }
-// }
   
-__global__ void Remove_Transfred_Particles_Kernel( int n_total, int *n_transfered_d, bool *transfer_flags_d, int *prefix_sum_d, int *transfer_indxs_d, double *data_d ){
-
-  int tid_block, start_index, n, n_threads ;
-  tid_block =  threadIdx.x;
-  n_threads = blockDim.x;
-  int dst_indx;
-
-  int n_replace, n_transfered;
-  n_transfered = n_transfered_d[0];
-  // n_replace = n_transfered > ( n_total - n_transfered)  ?  n_total - n_transfered  : n_transfered;
-  n_replace = n_transfered;
-
-  __shared__ int N_replaced_sh[1];
-  __shared__ bool transfer_flags_sh[TPB_PARTICLES];
-
-  if ( tid_block == 0 ) N_replaced_sh[0] = 0;
-  __syncthreads();
-// 
-  if (tid_block == 0 ) printf( " N replace: %d \n", n_replace );
-// 
-  n = 1;
-  while( N_replaced_sh[0] < n_replace ){
-    // if (n==100) break;
-    // if (tid_block == 0 ) printf(" Iteration: %d\n", n );
-    start_index =  n_total - n*n_threads;
-    if ( start_index + n_threads < 0 ) break;
-    if ( start_index + tid_block >= 0 && start_index + tid_block < n_total) transfer_flags_sh[tid_block] = transfer_flags_d[start_index + tid_block];
-    // else  transfer_flags_sh[tid_block] = 1; 
-    __syncthreads();
-    // printf( "%d \n", n*n_threads );
-  // 
-    // if (tid_block == 0 ){
-    //   for ( int i=n_threads-1; i>=0; i--){
-    //     if ( start_index + i >= n_total || start_index + i < 0 ) continue;
-    //     printf("%d    %d     %d \n", start_index + i, (int)transfer_flags_d[start_index + i], (int)transfer_flags_sh[i]  );
-    //     // if (transfer_flags_d[start_index + i] != transfer_flags_sh[i] && start_index + i < n_total) printf("ERROR\n");
-    //   }
-    // }
-    // 
-    if ( tid_block == 0 ){
-      for ( int i=n_threads-1; i>=0; i--){
-        if ( start_index + i >= n_total || start_index + i < 0 ){
-          // printf("Error in deleting tranfered particle data \n" );
-          continue;
-        }
-        // printf( "%d  %d\n", start_index + i, (int)transfer_flags_sh[i]  );
-        // if ( !transfer_flags_sh[i] ){
-        if ( !transfer_flags_d[start_index+i] ){
-          if ( N_replaced_sh[0] == n_replace ) continue;
-          dst_indx = transfer_indxs_d[N_replaced_sh[0]];
-          printf("moving  %d   to   %d   %f  ->  %f  %d   %d  n_replaced: %d\n", start_index + i, dst_indx, data_d[start_index + i], data_d[dst_indx], (int) transfer_flags_d[start_index + i], (int) transfer_flags_sh[i], N_replaced_sh[0] +1 );
-          data_d[dst_indx] = data_d[start_index + i];
-          N_replaced_sh[0] += 1;
-          __syncthreads();
-        }
-      }
-      // printf("%d\n",n );
-    }
-    n += 1;
-    __syncthreads();
-  }
-
-
-  if ( tid_block == 0 ) printf(" N iterations: %d\n", n );
-
-
-}
-
+   
+   
   
-  
-  
-  // 
-  
-  
-  
-  
-
-
-// __global__ void Sum_Blocks_Kernel( int n_total, int n_per_block, int n_blocks, int *output, int *output_block){
-// 
-//   int tid, tid_block;
-//   tid = threadIdx.x + blockIdx.x * blockDim.x;
-//   tid_block = threadIdx.x;
-// 
-//   extern __shared__ float data_sh[];
-//   while( tid_block < n_blocks ){
-//     data_sh[tid_block] = output_block[tid_block];
-//     tid_block += blockDim.x;
-//   }
-// 
-//   tid_block = threadIdx.x;
-//   if ( tid_block == 0 ){
-//     for (int i=1; i<blockIdx.x/2; i++){
-//       data_sh[0] += data_sh[i];
-//     }
-//   }
-//   __syncthreads();
-// 
-// 
-//   if ( blockIdx.x/2 > 0 ) output[tid] += data_sh[0];
-// 
-// 
-// 
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// 
-// __global__ void prescan(float *g_odata, float *g_idata, int n)
-// {
-//   extern __shared__ float temp[];  // allocated on invocation
-//   int thid = threadIdx.x;
-//   int offset = 1;
-// 
-// 
-//   temp[2*thid] = g_idata[2*thid]; // load input into shared memory
-//   temp[2*thid+1] = g_idata[2*thid+1];
-// 
-//   for (int d = n>>1; d > 0; d >>= 1)                    // build sum in place up the tree
-//   { 
-//     __syncthreads();
-//     if (thid < d)
-//     {
-// 
-//       int ai = offset*(2*thid+1)-1;
-//       int bi = offset*(2*thid+2)-1;
-// 
-// 
-//         temp[bi] += temp[ai];
-//     }
-//     offset *= 2;
-//   }
-// 
-// 
-// if (thid == 0) { temp[n - 1] = 0; } // clear the last element
-// 
-// 
-// for (int d = 1; d < n; d *= 2) // traverse down tree & build scan
-// {
-//      offset >>= 1;
-//      __syncthreads();
-//      if (thid < d)                     
-//      {
-// 
-// 
-//     int ai = offset*(2*thid+1)-1;
-//     int bi = offset*(2*thid+2)-1;
-// 
-// 
-// float t = temp[ai];
-// temp[ai] = temp[bi];
-// temp[bi] += t; 
-//       }
-// }
-//  __syncthreads();
-// 
-//      g_odata[2*thid] = temp[2*thid]; // write results to device memory
-//      g_odata[2*thid+1] = temp[2*thid+1];
-// 
-// }
-// 
-
-
-
-
-
-
-
-
-// __global__ void scan(float *g_odata, float *g_idata, int n)
-// {
-  //   extern __shared__ float temp[]; // allocated on invocation
-  //   int thid = threadIdx.x;
-  //   int pout = 0, pin = 1;
-  //   // Load input into shared memory.
-  //   // This is exclusive scan, so shift right by one
-  //   // and set first element to 0
-  //   temp[pout*n + thid] = (thid > 0) ? g_idata[thid-1] : 0;
-  //   __syncthreads();
-  //   for (int offset = 1; offset < n; offset *= 2)
-  //   {
-    //      pout = 1 - pout; // swap double buffer indices
-    //      pin = 1 - pout;
-    //      if (thid >= offset)
-    //        temp[pout*n+thid] += temp[pin*n+thid - offset];
-    //      else
-    //        temp[pout*n+thid] = temp[pin*n+thid];
-    //      __syncthreads();
-    //     }
-    //     g_odata[thid] = temp[pout*n+thid]; // write output
-    //     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
